@@ -1,4 +1,11 @@
 import json
+import paho.mqtt.client as mqtt  # Import thư viện MQTT
+
+MQTT_SERVER = "broker.emqx.io"
+MQTT_PORT = 1883
+MQTT_USER = "mqtt"
+MQTT_PASSWORD = "mqtt"
+MQTT_TOPIC = "mqtt/hvgiang/topic"
 
 from flask import Flask, request
 from flask_socketio import SocketIO, join_room
@@ -15,27 +22,55 @@ embedded_id = ''
 
 calculator = Calculator()
 
+# Thiết lập client MQTT
+mqtt_client = mqtt.Client()
+
+def on_connect(client, userdata, flags, rc):
+    print(f"Connected to MQTT broker with result code {rc}")
+    mqtt_client.subscribe(MQTT_TOPIC)
+
+#def on_message(client, userdata, msg):
+#    print("Received message '" + str(msg.payload) + "' on topic '" + msg.topic + "'")
+#    try:
+#       parsed = json.loads(msg.payload.decode())
+#
+#        r1_state = parsed['r1']
+#        r2_state = parsed['r2']
+#        r3_state = parsed['r3']
+#        r4_state = parsed['r4']
+
+#        calculator.update_embedded('r1', r1_state)
+#        calculator.update_embedded('r2', r2_state)
+#        calculator.update_embedded('r3', r3_state)
+#        calculator.update_embedded('r4', r4_state)
+#
+#   except KeyError as e:
+#        print(f"Key not found: {e}")
+
+# Kết nối đến MQTT broker
+mqtt_client.username_pw_set(username=MQTT_USER, password=MQTT_PASSWORD)
+mqtt_client.on_connect = on_connect
+#mqtt_client.on_message = on_message
+mqtt_client.connect(MQTT_SERVER, MQTT_PORT, 60)
+mqtt_client.loop_start()
 
 @socketio.on('connect')
 def handle_connect(data):
-    session_id = request.sid  # Get the session ID of the connected client
-    join_room(session_id)  # Optionally, join the client to a room with its own session ID
+    session_id = request.sid
+    join_room(session_id)
     print("Client connected:", request.sid)
-
 
 @socketio.on('simulation_login')
 def simulation_logged_in(data):
     print('simulation block logged in')
     global simulation_id
-    simulation_id = request.sid  # Get the session ID of the connected client
-
+    simulation_id = request.sid
 
 @socketio.on('embedded_login')
 def simulation_logged_in(data):
     print('embedded block logged in')
     global embedded_id
     embedded_id = request.sid
-
 
 @socketio.on('r1_ai')
 def update_route_1(data):
@@ -46,7 +81,6 @@ def update_route_1(data):
 
         parsed = json.loads(data)
         base64_img = parsed['base64Img']
-        # print(base64_img)
         current_vehicle_per_fps = parsed['current_vehicle_per_fps']
         data_car = parsed['data_car']
         data_bus = parsed['data_bus']
@@ -59,8 +93,6 @@ def update_route_1(data):
 
     except KeyError as e:
         print(f"Key not found: {e}")
-
-
 @socketio.on('r2_ai')
 def update_route_2(data):
     global calculator
@@ -156,13 +188,11 @@ def update_r1_em(data):
     except KeyError as e:
         print(f"Key not found: {e}")
 
-
 def update_simulation(data):
     global simulation_id
     if simulation_id:
         print('sent to simulation')
         sent_data(data, simulation_id)
-
 
 def update_embedded(data):
     global embedded_id
@@ -170,10 +200,11 @@ def update_embedded(data):
         print('sent to embedded block')
         sent_data(data, embedded_id)
 
-
 def sent_data(data, _id):
     socketio.emit('update_result', data, room=_id)
 
+    # Publish embedded_data đến MQTT broker
+   
 
 def background_task():
     global calculator
@@ -244,7 +275,8 @@ def background_task():
         embedded_data = json.dumps(embedded_data)
 
         update_simulation(simulation_data)
-        update_embedded(embedded_data)
+        #update_embedded(embedded_data)
+        mqtt_client.publish(MQTT_TOPIC, json.dumps(embedded_data))
 
         socketio.sleep(0.1)
 
@@ -252,3 +284,5 @@ def background_task():
 if __name__ == '__main__':
     socketio.start_background_task(background_task)
     socketio.run(app, host='0.0.0.0', port=5000)
+
+        
